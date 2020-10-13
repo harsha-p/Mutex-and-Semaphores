@@ -175,9 +175,9 @@ void runSorts(long long int n)
     for (int i = 0; i < n; i++)
         scanf("%d", arr + i);
 
-    int brr[n + 1];
+    int brr[n + 1], crr[n + 1];
     for (int i = 0; i < n; i++)
-        brr[i] = arr[i];
+        brr[i] = arr[i], crr[i] = arr[i];
 
     printf("Running concurrent_mergesort for n = %lld\n", n);
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
@@ -222,10 +222,10 @@ void runSorts(long long int n)
     st = ts.tv_nsec / (1e9) + ts.tv_sec;
 
     // normal mergesort
-    normal_mergeSort(brr, 0, n - 1);
+    normal_mergeSort(crr, 0, n - 1);
     for (int i = 0; i < n; i++)
     {
-        printf("%d ", brr[i]);
+        printf("%d ", crr[i]);
     }
     printf("\n");
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
