@@ -7,6 +7,14 @@
 #include <errno.h>
 #include <limits.h>
 
+#define RED "\x1b[1;31m"
+#define GREEN "\x1b[1;32m"
+#define YELLOW "\x1b[1;33m"
+#define BLUE "\x1b[1;34m"
+#define MAGENTA "\x1b[1;35m"
+#define CYAN "\x1b[1;36m"
+#define RESET "\x1b[0m"
+
 int performers, acoustic, electrical, coordinators, t1, t2, waittime, at, et;
 sem_t astage, estage, stage;
 sem_t taketshirt, forsinger, forpool;
@@ -25,20 +33,6 @@ struct performer
 };
 struct performer *pa[400];
 
-int min(int a, int b)
-{
-    if (a == -1 && b == -1)
-        return INT_MAX;
-    else if (a == -1)
-        return b;
-    else if (b == -1)
-        return a;
-    else if (a < b)
-        return a;
-    else
-        return b;
-}
-
 int timed(sem_t s, int wt)
 {
     struct timespec ts;
@@ -47,25 +41,29 @@ int timed(sem_t s, int wt)
     long long a;
     while ((a = sem_timedwait(&s, &ts)) == -1 && errno == EINTR)
         ts.tv_sec += wt;
+    printf("%d wt\n", wt);
     if (a == -1)
     {
         if (errno == ETIMEDOUT)
         {
-            // printf("timed out\n");
+            printf("timed out\n" RESET);
         }
         else
             perror("sem_timed_wait");
         pthread_mutex_unlock(&stagelock);
         return -1;
     }
+    // printf("%d a\n", a);
+
     clock_gettime(CLOCK_REALTIME, &ts);
-    return ts.tv_sec;
+    return 1;
 }
 
 int checkforsinger(int time, int id)
 {
     sem_post(&forpool);
     int a = timed(forsinger, time);
+    printf("lol:(\n");
     if (a == -1)
     {
         sem_wait(&forpool);
@@ -78,7 +76,7 @@ int checkforsinger(int time, int id)
             if (pa[i]->solo == 2 && pa[i]->instrument == 's')
             {
                 pa[i]->solo = 1;
-                printf("%s joined %s's performance,performance extended by 2 secs\n", pa[i]->name, pa[id]->name);
+                printf(MAGENTA "%s joined %s's performance,performance extended by 2 secs\n" RESET, pa[i]->name, pa[id]->name);
             }
         }
         return 1;
@@ -90,24 +88,25 @@ void perform(struct performer *p, int type)
     int time = rand() % (t2 - t1 + 1);
     time += t1;
     int a = 0;
+    printf("%d time\n", time);
     if (p->instrument != 's')
         a = checkforsinger(time, p->id);
     if (type == 0)
-        printf("%s performing %c at acoustic stage for time %d\n", p->name, p->instrument, time);
+        printf(BLUE "%s performing %c at acoustic stage for time %d\n" RESET, p->name, p->instrument, time);
     if (type == 1)
-        printf("%s performing %c at electric stage for time %d\n", p->name, p->instrument, time);
+        printf(BLUE "%s performing %c at electric stage for time %d\n" RESET, p->name, p->instrument, time);
     sleep(time);
-    // printf("break\n");
+    // printf("break\n"RESET);
     if (a)
         sleep(2);
     if (type = 0)
-        printf("%s performance at acoustic stage finished\n", p->name);
+        printf(BLUE "%s performance at acoustic stage finished\n" RESET, p->name);
     if (type = 1)
-        printf("%s performance at electric stage finished\n", p->name);
+        printf(BLUE "%s performance at electric stage finished\n" RESET, p->name);
     if (p->instrument != 's')
     {
         sem_wait(&taketshirt);
-        printf("%s collecting tshirt\n", p->name);
+        printf(GREEN "%s collecting tshirt\n" RESET, p->name);
         sleep(2);
         sem_post(&taketshirt);
     }
@@ -125,7 +124,7 @@ void *getastage(void *inp)
     else
         type = 2;
     sleep(p->arrivaltime);
-    printf("%s %c arrived\n", p->name, p->instrument);
+    printf(GREEN "%s %c arrived\n" RESET, p->name, p->instrument);
     pthread_mutex_lock(&stagelock);
     pthread_mutex_unlock(&stagelock);
     if (type == 2 && ins != 's')
@@ -138,7 +137,7 @@ void *getastage(void *inp)
             if (a <= b)
             {
                 sem_post(&estage);
-                printf("%s got acoustic stage\n", p->name);
+                printf(GREEN "%s got acoustic stage\n" RESET, p->name);
                 pthread_mutex_unlock(&stagelock);
                 perform(p, 0);
                 sem_post(&astage);
@@ -146,7 +145,7 @@ void *getastage(void *inp)
             else
             {
                 sem_post(&astage);
-                printf("%s got electric stage\n", p->name);
+                printf(GREEN "%s got electric stage\n" RESET, p->name);
                 pthread_mutex_unlock(&stagelock);
                 perform(p, 1);
                 sem_post(&estage);
@@ -154,14 +153,14 @@ void *getastage(void *inp)
         }
         else if (a != -1)
         {
-            printf("%s got acoustic stage\n", p->name);
+            printf(GREEN "%s got acoustic stage\n" RESET, p->name);
             pthread_mutex_unlock(&stagelock);
             perform(p, 0);
             sem_post(&astage);
         }
         else if (b != -1)
         {
-            printf("%s got electric stage\n", p->name);
+            printf(GREEN "%s got electric stage\n" RESET, p->name);
             pthread_mutex_unlock(&stagelock);
             perform(p, 1);
             sem_post(&estage);
@@ -169,7 +168,7 @@ void *getastage(void *inp)
         else
         {
             pthread_mutex_unlock(&stagelock);
-            printf("%s %c left because of impatience\n", p->name, p->instrument);
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument);
         }
     }
     else if (type == 0)
@@ -177,7 +176,7 @@ void *getastage(void *inp)
         int a = timed(astage, waittime);
         if (a != -1)
         {
-            printf("%s got acoustic stage\n", p->name);
+            printf(GREEN "%s got acoustic stage\n" RESET, p->name);
             pthread_mutex_unlock(&stagelock);
             perform(p, 0);
             sem_post(&astage);
@@ -185,7 +184,7 @@ void *getastage(void *inp)
         else
         {
             pthread_mutex_unlock(&stagelock);
-            printf("%s %c left because of impatience\n", p->name, p->instrument);
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument);
         }
     }
     else if (type == 1)
@@ -193,7 +192,7 @@ void *getastage(void *inp)
         int a = timed(astage, waittime);
         if (a != -1)
         {
-            printf("%s got electric stage\n", p->name);
+            printf(GREEN "%s got electric stage\n" RESET, p->name);
             pthread_mutex_unlock(&stagelock);
             perform(p, 1);
             sem_post(&astage);
@@ -201,7 +200,7 @@ void *getastage(void *inp)
         else
         {
             pthread_mutex_unlock(&stagelock);
-            printf("%s %c left because of impatience\n", p->name, p->instrument);
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument);
         }
     }
     else if (ins == 's')
@@ -209,9 +208,8 @@ void *getastage(void *inp)
         int a = timed(forpool, waittime);
         int b = timed(astage, waittime);
         int c = timed(estage, waittime);
-        int mn = -1;
-        mn = min(a, min(b, c));
-        if (a == mn)
+        printf("%d %d %d abcd\n", a, b, c);
+        if (a == 1)
         {
             p->solo = 2;
             sem_post(&forsinger);
@@ -221,7 +219,7 @@ void *getastage(void *inp)
                 sem_post(&estage);
             pthread_mutex_unlock(&stagelock);
         }
-        else if (b == mn)
+        else if (b == 1 && (c != 1 || rand() % 2 == 0))
         {
             p->solo = 1;
             if (c != -1)
@@ -229,7 +227,7 @@ void *getastage(void *inp)
             pthread_mutex_unlock(&stagelock);
             perform(p, 0);
         }
-        else if (c == mn)
+        else if (c == 1)
         {
             p->solo = 1;
             if (b != -1)
@@ -239,8 +237,7 @@ void *getastage(void *inp)
         }
         else
         {
-            printf("lol4\n");
-            printf("%s %c left because of impatience\n", p->name, p->instrument);
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument);
         }
     }
 }
@@ -274,5 +271,5 @@ int main()
     {
         pthread_join(pa[i]->ptid, NULL);
     }
-    printf("Finished\n");
+    printf(YELLOW "Finished\n" RESET);
 }
