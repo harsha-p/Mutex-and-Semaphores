@@ -19,9 +19,9 @@ int performers, acoustic, electrical, coordinators, t1, t2, waittime, at, et;
 sem_t astage, estage, stage;
 sem_t taketshirt, forsinger, forpool;
 pthread_mutex_t tshirtlock, stagelock;
+pthread_t checksinger, timeout;
 
 long long s;
-
 struct performer
 {
     int id;
@@ -29,19 +29,38 @@ struct performer
     char name[50];
     char instrument;
     int arrivaltime;
+    int performtime;
     pthread_t ptid;
 };
 struct performer *pa[400];
 
-int timed(sem_t s, int wt)
+long long min(long long a, long long b)
+{
+    if (a != -1 && b != -1)
+    {
+        if (a < b)
+            return a;
+        else
+            return b;
+    }
+    else if (a != -1)
+        return a;
+    else if (b != -1)
+        return b;
+    else
+        return INT_MAX;
+}
+
+long long timed(sem_t s, int wt)
 {
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1)
         return -1;
     long long a;
+    ts.tv_sec += wt;
     while ((a = sem_timedwait(&s, &ts)) == -1 && errno == EINTR)
-        ts.tv_sec += wt;
-    printf("%d wt\n", wt);
+        continue;
+    // printf("%d wt\n", wt);
     if (a == -1)
     {
         if (errno == ETIMEDOUT)
@@ -56,30 +75,49 @@ int timed(sem_t s, int wt)
     // printf("%d a\n", a);
 
     clock_gettime(CLOCK_REALTIME, &ts);
-    return 1;
+    // printf("%d time\n", ts.tv_nsec);
+    return ts.tv_nsec;
 }
 
-int checkforsinger(int time, int id)
+void *checkfortime(void *inp)
 {
     sem_post(&forpool);
-    int a = timed(forsinger, time);
-    printf("lol:(\n");
+    struct performer *p = (struct performer *)inp;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) == -1)
+        return NULL;
+    long long a;
+    ts.tv_sec += p->performtime;
+    while ((a = sem_timedwait(&forsinger, &ts)) == -1 && errno == EINTR)
+        continue;
+    if (a == -1)
+    {
+        if (errno == ETIMEDOUT)
+        {
+            // printf("timed out\n" RESET);
+        }
+        else
+            perror("sem_timed_wait");
+        pthread_mutex_unlock(&stagelock);
+    }
     if (a == -1)
     {
         sem_wait(&forpool);
+        // printf("nope:(");
         return 0;
     }
     else
     {
+        // printf("ig:'(");
         for (int i = 0; i < performers; i++)
         {
             if (pa[i]->solo == 2 && pa[i]->instrument == 's')
             {
                 pa[i]->solo = 1;
-                printf(MAGENTA "%s joined %s's performance,performance extended by 2 secs\n" RESET, pa[i]->name, pa[id]->name);
+                printf(MAGENTA "%s joined %s's performance,performance extended by 2 secs\n" RESET, pa[i]->name, p->name);
             }
         }
-        return 1;
+        return NULL;
     }
 }
 
@@ -88,9 +126,12 @@ void perform(struct performer *p, int type)
     int time = rand() % (t2 - t1 + 1);
     time += t1;
     int a = 0;
-    printf("%d time\n", time);
+    p->performtime = time;
+    // printf("%d time\n", time);
     if (p->instrument != 's')
-        a = checkforsinger(time, p->id);
+    {
+        pthread_create(&timeout, NULL, checkfortime, (void *)p);
+    }
     if (type == 0)
         printf(BLUE "%s performing %c at acoustic stage for time %d\n" RESET, p->name, p->instrument, time);
     if (type == 1)
@@ -129,7 +170,7 @@ void *getastage(void *inp)
     pthread_mutex_unlock(&stagelock);
     if (type == 2 && ins != 's')
     {
-        int a, b;
+        long long a, b;
         a = timed(astage, waittime);
         b = timed(estage, waittime);
         if (a != -1 && b != -1)
@@ -173,7 +214,7 @@ void *getastage(void *inp)
     }
     else if (type == 0)
     {
-        int a = timed(astage, waittime);
+        long long a = timed(astage, waittime);
         if (a != -1)
         {
             printf(GREEN "%s got acoustic stage\n" RESET, p->name);
@@ -189,7 +230,7 @@ void *getastage(void *inp)
     }
     else if (type == 1)
     {
-        int a = timed(astage, waittime);
+        long long a = timed(astage, waittime);
         if (a != -1)
         {
             printf(GREEN "%s got electric stage\n" RESET, p->name);
@@ -205,11 +246,14 @@ void *getastage(void *inp)
     }
     else if (ins == 's')
     {
-        int a = timed(forpool, waittime);
-        int b = timed(astage, waittime);
-        int c = timed(estage, waittime);
-        printf("%d %d %d abcd\n", a, b, c);
-        if (a == 1)
+        long long a = timed(forpool, waittime);
+        long long b = timed(astage, waittime);
+        long long c = timed(estage, waittime);
+        long long mn = -1;
+        mn = min(a, min(b, c));
+        // printf("%d %d %d %d %d a b c mn intmax\n", a, b, c, mn, INT_MAX);
+        // printf("%d %d %d eq\n", a == mn, b == mn, c == mn);
+        if (a == mn)
         {
             p->solo = 2;
             sem_post(&forsinger);
@@ -219,7 +263,7 @@ void *getastage(void *inp)
                 sem_post(&estage);
             pthread_mutex_unlock(&stagelock);
         }
-        else if (b == 1 && (c != 1 || rand() % 2 == 0))
+        else if (b == mn)
         {
             p->solo = 1;
             if (c != -1)
@@ -227,7 +271,7 @@ void *getastage(void *inp)
             pthread_mutex_unlock(&stagelock);
             perform(p, 0);
         }
-        else if (c == 1)
+        else if (c == mn)
         {
             p->solo = 1;
             if (b != -1)
