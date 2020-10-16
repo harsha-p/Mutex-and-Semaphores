@@ -179,7 +179,7 @@ void perform(struct performer *p, int type) // start performing on stage
     if (type == 1)
         printf(BLUE "%s performing %c at electric stage for time %d\n" RESET, p->name, p->instrument, time);
     sleep(time);
-    if (p->solo == 3) // if found a singer extend performance by 2 seconds
+    if (p->solo) // if found a singer extend performance by 2 seconds
         sleep(2);
     if (type == 0)
         printf(BLUE "%s performance at acoustic stage finished\n" RESET, p->name);
@@ -195,6 +195,138 @@ void perform(struct performer *p, int type) // start performing on stage
         printf(GREEN "%s collecting tshirt\n" RESET, p->name);
         sleep(2);
         sem_post(&tshirt);
+    }
+}
+
+void *getastage(void *inp)
+{
+    int type;
+    struct performer *p = (struct performer *)inp;
+    char ins = p->instrument;
+    if (ins == 'v')
+        type = 0;
+    else if (ins == 'b')
+        type = 1;
+    else
+        type = 2;
+    sleep(p->arrivaltime);
+    printf(GREEN "%s %c arrived\n" RESET, p->name, p->instrument);
+    if (type == 2 && ins != 's') // musician looking for acoustic/electrical stage
+    {
+        pthread_create(&p->atimer, NULL, timerfor_astage, (void *)p); // look for acoustic stage
+        pthread_create(&p->etimer, NULL, timerfor_estage, (void *)p); // lok for electric stage
+        while (!((p->a[1] > 0 || p->a[2] > 0) || (p->a[1] == -1 && p->a[2] == -1)))
+            ;
+        sleep(1);
+        long long *a = &p->a[1];
+        long long *b = &p->a[2];
+        printf("%d %d id type\n", p->id, type);
+        printf("%lld %lld a b\n", *a, *b);
+        if (*a > 0 && *b > 0) // both types of stages are available
+        {
+            if (*a <= *b)
+            {
+                sem_post(&estage); // release electric stage
+                printf(GREEN "%s got acoustic stage\n" RESET, p->name);
+                perform(p, 0);
+            }
+            else
+            {
+                sem_post(&astage); //release acoustic stage
+                printf(GREEN "%s got electric stage\n" RESET, p->name);
+                perform(p, 1);
+            }
+        }
+        else if (*a > 0)
+        {
+            printf(GREEN "%s got acoustic stage\n" RESET, p->name); // acoustic stage is available
+            perform(p, 0);
+        }
+        else if (*b > 0)
+        {
+            printf(GREEN "%s got electric stage\n" RESET, p->name); // electric stage is available
+            perform(p, 1);
+        }
+        else
+        {
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument); // no stage is available
+        }
+    }
+    else if (type == 0) // musician looking for acoustic stage
+    {
+        pthread_create(&atimer, NULL, timerfor_astage, (void *)p); // look for acoustic stage
+        while (p->a[1] == 0)
+            ;
+        long long a = p->a[1];
+        if (a != -1)
+        {
+            printf(GREEN "%s got acoustic stage\n" RESET, p->name);
+            perform(p, 0);
+        }
+        else
+        {
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument); // acostic stage not available
+        }
+    }
+    else if (type == 1) // musician looking for electric stage
+    {
+        pthread_create(&p->atimer, NULL, timerfor_estage, (void *)p); // look for electric stage
+        while (p->a[2] == 0)
+            ;
+        long long b = p->a[2];
+        if (b > 0)
+        {
+            printf(GREEN "%s got electric stage\n" RESET, p->name);
+            perform(p, 1);
+        }
+        else
+        {
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument); // electric stage not available
+        }
+    }
+    else if (ins == 's' && type == 2) // singer looking for a stage
+    {
+        pthread_create(&p->jtimer, NULL, timerfor_musician, (void *)p); //  looking to join a musician
+        pthread_create(&p->atimer, NULL, timerfor_astage, (void *)p);   //  looking for acoustic stage
+        pthread_create(&p->etimer, NULL, timerfor_estage, (void *)p);   //  looking for electric stage
+        while (!(p->a[0] > 0 || p->a[1] > 0 || p->a[2] > 0 || ((p->a[0] == -1) && (p->a[1] == -1) && (p->a[2] == -1))))
+            ;
+        long long *a = &p->a[0];
+        long long *b = &p->a[1];
+        long long *c = &p->a[2];
+        long long mn = -1;
+        mn = min(*a, min(*b, *c));
+        printf("%d %d id type\n", p->id, type);
+        printf("%d %d %d %d a b c mn\n", *a, *b, *c, mn);
+        // printf("%d %d %d %d %d a b c mn \n", a, b, c, mn);
+        if (*a == mn)
+        {
+            p->solo = 2;
+            sem_post(&forsinger); // signal to musician that singer is available
+            if (*b > 0)
+                sem_post(&astage); // release acoustic stage
+            if (*c > 0)
+                sem_post(&estage); // release electic stage
+        }
+        else if (*b == mn)
+        {
+            p->solo = 1;
+            if (*c > 0)
+                sem_post(&estage); // release electric stage
+            perform(p, 0);
+        }
+        else if (*c == mn)
+        {
+            p->solo = 1;
+            if (*b > 0)
+                sem_post(&astage); // release acoustic stage
+            perform(p, 1);
+        }
+        else
+        {
+            printf(RED "%s %c left because of impatience\n" RESET, p->name, p->instrument); // no stage available to perform solo or to join
+            return NULL;
+        }
     }
 }
 
