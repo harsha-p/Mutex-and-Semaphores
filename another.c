@@ -252,11 +252,15 @@ void *getastage(void *inp)
                 else if (*a > 0)
                 {
                     printf(GREEN "%s got acoustic stage\n" RESET, p->name); // acoustic stage is available
+                    if (*b > 0)
+                        sem_post(&estage), printf("lol1\n");
                     perform(p, 0);
                 }
                 else if (*b > 0)
                 {
                     printf(GREEN "%s got electric stage\n" RESET, p->name); // electric stage is available
+                    if (*a > 0)
+                        sem_post(&astage), printf("lol2\n");
                     perform(p, 1);
                 }
                 else
@@ -332,8 +336,6 @@ void *getastage(void *inp)
                 long long *c = &p->a[2];
                 long long mn = -1;
                 mn = min(*a, min(*b, *c));
-                printf("%d %d id type\n", p->id, type);
-                printf("%d %d %d %d a b c mn\n", *a, *b, *c, mn);
                 // printf("%d %d %d %d %d a b c mn \n", a, b, c, mn);
                 if (*a == mn)
                 {
