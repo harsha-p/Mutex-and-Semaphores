@@ -17,23 +17,29 @@
 
 int performers, acoustic, electrical, coordinators, t1, t2, waittime, at, et;
 sem_t astage, estage, tshirt, forsinger, formusician;
-pthread_mutex_t tshirtlock;
-pthread_t getasinger, atimer, etimer, jtimer;
+pthread_t getasinger, atimer, etimer, jtimer, gettshirt;
 struct performer
 {
     int id;
-    int solo;
+    int singer;
     char name[50];
     char instrument;
     int arrivaltime;
     int performtime;
     pthread_t ptid;
-    pthread_t performance;
-    pthread_t lol;
-    long long a[3];
+    long long a[3]; // used for searching solo stage,acoustic stage and electric stage
     pthread_t atimer, jtimer, etimer;
 };
-struct performer *pa[400];
+struct performer *pa[100];
+
+void *taketsirt(void *inp)
+{
+    struct performer *p = (struct performer *)inp;
+    sem_wait(&tshirt);
+    printf("%s receiving tshirt\n", p->name);
+    sleep(2);
+    sem_post(&tshirt);
+}
 
 long long min(long long a, long long b)
 {
@@ -62,7 +68,6 @@ void *timerfor_astage(void *inp) // timer to search for acoustic stage
     ts.tv_sec += waittime;
     while ((l = sem_timedwait(&astage, &ts)) == -1 && errno == EINTR) // search for acoustic stage
         continue;
-    // printf("%d l1\n", l);
     if (l == -1) // not found
     {
         if (errno == ETIMEDOUT)
@@ -74,7 +79,6 @@ void *timerfor_astage(void *inp) // timer to search for acoustic stage
     }
     clock_gettime(CLOCK_REALTIME, &ts);
     p->a[1] = ts.tv_nsec;
-    // printf("%lld a[0]\n", p->a[0]);
 }
 
 void *timerfor_estage(void *inp) // timer to search for electic stage
@@ -151,16 +155,17 @@ void *checksinger(void *inp) // timer to search for a singer
     }
     else
     {
+        int id;
         for (int i = 0; i < performers; i++) // search for singer who sent singal
         {
-            if (pa[i]->solo == 2 && pa[i]->instrument == 's')
+            if (pa[i]->singer == 1 && pa[i]->instrument == 's')
             {
-                pa[i]->solo = 1;
+                pa[i]->singer = 0; // collaborating
                 printf(MAGENTA "%s joined %s's performance,performance extended by 2 secs\n" RESET, pa[i]->name, p->name);
-                // break;
+                p->singer = i; // collaborating
+                break;
             }
         }
-        p->solo = 3;
         return NULL;
     }
 }
@@ -179,7 +184,7 @@ void perform(struct performer *p, int type) // start performing on stage
     if (type == 1)
         printf(BLUE "%s performing %c at electric stage for time %d\n" RESET, p->name, p->instrument, time);
     sleep(time);
-    if (p->solo == 3) // if found a singer extend performance by 2 seconds
+    if (p->singer >= 0) // if found a singer extend performance by 2 seconds
         sleep(2);
     if (type == 0)
         printf(BLUE "%s performance at acoustic stage finished\n" RESET, p->name);
@@ -189,16 +194,13 @@ void perform(struct performer *p, int type) // start performing on stage
         sem_post(&astage);
     else if (type == 1)
         sem_post(&estage);
-    if (p->instrument != 's') // get a tshirt after performance
-    {
-        sem_wait(&tshirt);
-        printf(GREEN "%s collecting tshirt\n" RESET, p->name);
-        sleep(2);
-        sem_post(&tshirt);
-    }
+    pthread_create(&gettshirt, NULL, taketsirt, (void *)p);
+    if (p->singer >= 0)
+        pthread_create(&gettshirt, NULL, taketsirt, (void *)pa[p->singer]); // tshirt for singer
+    pthread_join(gettshirt, NULL);                                          // tsirt for performer
 }
 
-void *fresh(void *inp)
+void *getastage(void *inp)
 {
     int type;
     struct performer *p = (struct performer *)inp;
@@ -335,7 +337,7 @@ void *fresh(void *inp)
                 // printf("%d %d %d %d %d a b c mn \n", a, b, c, mn);
                 if (*a == mn)
                 {
-                    p->solo = 2;
+                    p->singer = 1;
                     sem_post(&forsinger); // signal to musician that singer is available
                     if (*b > 0)
                         sem_post(&astage); // release acoustic stage
@@ -344,14 +346,12 @@ void *fresh(void *inp)
                 }
                 else if (*b == mn)
                 {
-                    p->solo = 1;
                     if (*c > 0)
                         sem_post(&estage); // release electric stage
                     perform(p, 0);
                 }
                 else if (*c == mn)
                 {
-                    p->solo = 1;
                     if (*b > 0)
                         sem_post(&astage); // release acoustic stage
                     perform(p, 1);
@@ -395,10 +395,9 @@ int main()
         scanf(" %c", &pa[i]->instrument);
         scanf("%d", &pa[i]->arrivaltime);
         pa[i]->id = i;
-        pa[i]->solo = 1;
+        pa[i]->singer = -1;
         pa[i]->a[0] = pa[i]->a[1] = pa[i]->a[2] = 0;
-        // pthread_create(&pa[i]->ptid, NULL, getastage, (void *)pa[i]);
-        pthread_create(&pa[i]->ptid, NULL, fresh, (void *)pa[i]);
+        pthread_create(&pa[i]->ptid, NULL, getastage, (void *)pa[i]);
     }
     for (int i = 0; i < performers; i++)
     {
