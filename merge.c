@@ -49,7 +49,7 @@ void selectionSort(int arr[], int l, int r)
 
 void merge(int *arr, int l, int r)
 {
-    int i = 0, j = 0, k = l;
+    int i, j, k;
     int m = l + (r - l) / 2;
     int n1 = m - l + 1;
     int n2 = r - m;
@@ -58,6 +58,7 @@ void merge(int *arr, int l, int r)
         L[i] = arr[l + i];
     for (j = 0; j < n2; j++)
         R[j] = arr[m + 1 + j];
+    i = 0, j = 0, k = l;
     while (i < n1 && j < n2)
     {
         if (L[i] <= R[j])
@@ -167,9 +168,7 @@ void *threaded_mergeSort(void *a)
 
 void runSorts(long long int n)
 {
-
     struct timespec ts;
-
     //getting shared memory
     int *arr = shareMem(sizeof(int) * (n + 1));
     for (int i = 0; i < n; i++)
@@ -178,7 +177,11 @@ void runSorts(long long int n)
     int brr[n + 1], crr[n + 1];
     for (int i = 0; i < n; i++)
         brr[i] = arr[i], crr[i] = arr[i];
-
+    printf("arr\n");
+    for (int i = 0; i < n; i++)
+    {
+        printf("%d ", arr[i]);
+    }
     printf("Running concurrent_mergesort for n = %lld\n", n);
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     long double st = ts.tv_nsec / (1e9) + ts.tv_sec;
@@ -200,10 +203,14 @@ void runSorts(long long int n)
     a.l = 0;
     a.r = n - 1;
     a.arr = brr;
+    printf("brr\n");
+    for (int i = 0; i < n; i++)
+    {
+        printf("%d ", brr[i]);
+    }
     printf("Running threaded_concurrent_mergesort for n = %lld\n", n);
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     st = ts.tv_nsec / (1e9) + ts.tv_sec;
-
     //multithreaded mergesort
     pthread_create(&tid, NULL, threaded_mergeSort, &a);
     pthread_join(tid, NULL);
@@ -217,10 +224,14 @@ void runSorts(long long int n)
     printf("time = %Lf\n", en - st);
     long double t2 = en - st;
 
+    printf("crr\n");
+    for (int i = 0; i < n; i++)
+    {
+        printf("%d ", crr[i]);
+    }
     printf("Running normal_mergesort for n = %lld\n", n);
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     st = ts.tv_nsec / (1e9) + ts.tv_sec;
-
     // normal mergesort
     normal_mergeSort(crr, 0, n - 1);
     for (int i = 0; i < n; i++)
