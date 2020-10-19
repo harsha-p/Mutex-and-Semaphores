@@ -11,9 +11,10 @@
 #define ANSI_COLOR_MAGENTA "\x1b[1;35m"
 #define ANSI_COLOR_CYAN "\x1b[1;36m"
 #define ANSI_COLOR_RESET "\x1b[0m"
+#define MSIZE 1000
 
-int sno, cno, zno, wstudents = 0;
-pthread_mutex_t wslock;
+int sno, cno, zno, wstudents = 0, totstudents = 0;
+pthread_mutex_t wslock, tslock;
 struct student
 {
     int id;
@@ -23,7 +24,6 @@ struct student
     double prob;
     pthread_t stid;
     pthread_mutex_t slock;
-    pthread_cond_t scond;
 };
 
 struct company
@@ -35,7 +35,6 @@ struct company
     int completed;
     pthread_t ctid;
     pthread_mutex_t clock;
-    pthread_cond_t ccond;
 };
 
 struct zone
@@ -47,160 +46,155 @@ struct zone
     double prob;
     pthread_t ztid;
     pthread_mutex_t zlock;
-    pthread_cond_t zcond;
 };
 
-struct student *sa[400];
-struct company *ca[400];
-struct zone *za[400];
+struct student *sa[MSIZE];
+struct company *ca[MSIZE];
+struct zone *za[MSIZE];
 
 void antibody_checkup(struct student *s);
+
+int min(int a, int b)
+{
+    if (a <= b)
+        return a;
+    return b;
+}
 
 void delivery(struct company *c)
 {
     while (1)
     {
-        if (c->batchrem > 0)
-            pthread_cond_wait(&c->ccond, &c->clock);
+        if (totstudents == 0)
+        {
+            return;
+        }
+        if (c->batchrem > 0) // wait till batches =0
+            ;
         else
         {
             c->completed = 1;
-            for (int i = 0; i < zno; i++)
+            for (int i = 0; i < zno; i++) // check if any zone is using comapanys vaccine
             {
-                if (za[i]->comp == c->id && (za[i]->vrem > 0 || za[i]->srem > 0))
+                if (za[i]->comp == c->id)
+                {
                     c->completed = 0;
+                    break;
+                }
             }
-            if (c->completed == 1)
+            if (c->completed == 1) // if no then start production
             {
                 break;
             }
         }
     }
-    pthread_mutex_unlock(&c->clock);
 }
 
-void wait_for_slot(struct student *s)
+void wait_for_slot(struct student *s) // students get a slot , waits till vaccination and  goes for antibody checkup
 {
+    pthread_mutex_lock(&s->slock);
     pthread_mutex_lock(&wslock);
     wstudents++;
     pthread_mutex_unlock(&wslock);
-    printf(ANSI_COLOR_BLUE "Student %d is waiting to be allocated a slot on a Vaccination Zone\n" ANSI_COLOR_RESET, s->id);
+    printf(ANSI_COLOR_CYAN "Student %d is waiting to be allocated a slot on a Vaccination Zone\n" ANSI_COLOR_RESET, s->id);
     int cnt = 0;
     while (1)
     {
         cnt += 1;
         cnt %= zno;
         struct zone *z = za[cnt];
-        pthread_mutex_lock(&z->zlock);
-        if (z->srem > 0)
+        int V = pthread_mutex_trylock(&z->zlock);
+        if (V == 0)
         {
-            printf(ANSI_COLOR_MAGENTA "Student %d assigned a slot on the Vaccination Zone %d and waiting to be vaccinated\n" ANSI_COLOR_RESET, s->id, z->id);
-            pthread_mutex_lock(&wslock);
-            wstudents--;
-            s->zone = z->id;
-            z->srem--;
-            s->vac = 0;
-            s->turn += 1;
-            s->prob = z->prob;
-            // printf("got slot %d %d vac %d\n", s->zone, z->id, s->vac);
-            // if (wstudents == 0)
-            // {
-            pthread_mutex_unlock(&wslock);
-            pthread_cond_signal(&z->zcond);
-            // }
-            // printf("lol\n");
-            // else
-            // pthread_mutex_unlock(&wslock);
-            pthread_mutex_unlock(&z->zlock);
-            break;
+            if (z->srem > 0)
+            {
+                printf(ANSI_COLOR_MAGENTA "Student %d assigned a slot on the Vaccination Zone %d and waiting to be vaccinated\n" ANSI_COLOR_RESET, s->id, z->id);
+                pthread_mutex_lock(&wslock);
+                wstudents--;
+                pthread_mutex_unlock(&wslock);
+                s->zone = z->id;
+                z->srem--;
+                s->vac = 0;
+                s->turn += 1;
+                s->prob = z->prob;
+                pthread_mutex_unlock(&s->slock);
+                pthread_mutex_unlock(&z->zlock);
+                break;
+            }
+            else
+            {
+                pthread_mutex_unlock(&s->slock);
+                pthread_mutex_unlock(&z->zlock);
+            }
         }
-        else
-            pthread_mutex_unlock(&z->zlock);
     }
-    // sleep(0.1);
-    // antibody_checkup(s);
+    while (s->vac != 1)
+        ;
+    antibody_checkup(s);
 }
 
 void antibody_checkup(struct student *s)
 {
-    // pthread_mutex_lock(&s->slock);
-    while (s->vac != 1)
-        ;
     double r = (double)rand() / (double)RAND_MAX;
-    // printf("%lf %d double\n", r, s->id);
-    pthread_mutex_lock(&s->slock);
+    pthread_mutex_lock(&tslock);
     if (r < s->prob)
     {
-        printf("Student %d has tested positive for antibodies\n", s->id);
-        pthread_mutex_unlock(&s->slock);
+        printf(ANSI_COLOR_GREEN "Student %d has tested positive for antibodies\n" ANSI_COLOR_RESET, s->id);
+        printf(ANSI_COLOR_RED "Student %d left \n" ANSI_COLOR_RESET, s->id);
+        totstudents--;
+        pthread_mutex_unlock(&tslock);
     }
     else
     {
-        printf("Student %d has tested negative for antibodies\n", s->id);
+        printf(ANSI_COLOR_RED "Student %d has tested negative for antibodies\n" ANSI_COLOR_RESET, s->id);
         if (s->turn <= 3)
         {
             s->vac = -1;
             printf(ANSI_COLOR_RED "Student %d has arrived for his %d round of Vaccination\n" ANSI_COLOR_RESET, s->id, s->turn);
-            pthread_mutex_unlock(&s->slock);
+            pthread_mutex_unlock(&tslock);
             wait_for_slot(s);
-            antibody_checkup(s);
         }
         else
-            pthread_mutex_unlock(&s->slock);
+        {
+            totstudents--;
+            printf(ANSI_COLOR_RED "Student %d left \n" ANSI_COLOR_RESET, s->id);
+            pthread_mutex_unlock(&tslock);
+            return;
+        }
     }
 }
 
-void vaccinate_students(struct zone *z)
+void vaccinate_students(struct zone *z) // vaccinate students who got a slot
 {
-    while (1)
+    int id = z->id;
+    while (z->srem && wstudents)
+        ;
+    if (totstudents == 0)
+        return;
+    pthread_mutex_lock(&z->zlock);
+    printf(ANSI_COLOR_YELLOW "zone %d entering vaccination phase\n" ANSI_COLOR_RESET, z->id);
+    for (int i = 0; i < sno; i++)
     {
-        pthread_cond_wait(&z->zcond, &z->zlock);
-        // printf("lol1\n");
-        if (z->srem <= 0)
+        struct student *s = sa[i];
+        int V = pthread_mutex_trylock(&s->slock);
+        if (V == 0)
         {
-            // printf("lol2\n");
-            for (int i = 0; i < sno; i++)
+            if (s->vac == 0 && s->zone == z->id)
             {
-                struct student *s = sa[i];
-                pthread_mutex_lock(&s->slock);
-                // printf("%d %d %d ssz\n", s->vac, s->zone, z->id);
-                if (s->vac == 0 && s->zone == z->id)
-                {
-                    printf(ANSI_COLOR_GREEN "Student %d on Vaccination Zone %d has been vaccinated which has success probability %lf\n" ANSI_COLOR_RESET, s->id, z->id, z->prob);
-                    s->vac = 1;
-                    s->zone = -1;
-                }
-                pthread_mutex_unlock(&s->slock);
+                printf(ANSI_COLOR_GREEN "Student %d on Vaccination Zone %d has been vaccinated which has success probability %lf\n" ANSI_COLOR_RESET, s->id, z->id, z->prob);
+                s->vac = 1;
+                s->zone = -1;
             }
-            break;
-        }
-        else
-        {
-            // printf("lol3\n");
-            pthread_mutex_lock(&wslock);
-            if (wstudents == 0)
-            {
-                for (int i = 0; i < sno; i++)
-                {
-                    struct student *s = sa[i];
-                    pthread_mutex_lock(&s->slock);
-                    if (s->vac == 0 && s->zone == z->id)
-                    {
-                        printf(ANSI_COLOR_GREEN "Student %d on Vaccination Zone %d has been vaccinated which has success probability %lf\n" ANSI_COLOR_RESET, s->id, z->id, z->prob);
-                        s->vac = 1;
-                        s->zone = -1;
-                    }
-                    pthread_mutex_unlock(&s->slock);
-                }
-            }
-            pthread_mutex_unlock(&wslock);
+            pthread_mutex_unlock(&s->slock);
         }
     }
+    z->vrem += z->srem;
+    z->srem = 0;
     pthread_mutex_unlock(&z->zlock);
     sleep(2);
 }
 
-void *company(void *inp)
+void *company(void *inp) // produce vaccines
 {
     struct company *c = (struct company *)inp;
     while (1)
@@ -208,66 +202,86 @@ void *company(void *inp)
         int w = 2 + rand() % 4;
         int r = 1 + rand() % 5;
         int p = 10 + rand() % 11;
-        if (c->completed == 1)
+        if (totstudents == 0)
         {
-            sleep(0.1);
-            printf(ANSI_COLOR_RED "All the vaccines prepared by Pharmaceutical Company %d are emptied. Resuming production now\n" ANSI_COLOR_RESET, c->id);
+            return NULL;
         }
         printf(ANSI_COLOR_RED "Pharmaceutical Company %d is preparing %d batches of vaccines which have success probability %lf\n" ANSI_COLOR_RESET, c->id, r, c->prob);
         sleep(w);
         pthread_mutex_lock(&c->clock);
         c->batchrem = r;
         c->count = p;
-        printf("%d %d batch count\n", r, p);
-        printf(ANSI_COLOR_BLUE "Pharmaceutical Company %d has prepared %d batches of vaccines which have success probability %lf\n" ANSI_COLOR_RESET, c->id, c->batchrem, c->prob);
+        printf(ANSI_COLOR_YELLOW "Pharmaceutical Company %d has prepared %d batches of vaccines which have success probability %lf\n" ANSI_COLOR_RESET, c->id, c->batchrem, c->prob);
+        pthread_mutex_unlock(&c->clock);
         delivery(c);
+        if (c->completed && totstudents)
+        {
+            printf(ANSI_COLOR_RED "All the vaccines prepared by Pharmaceutical Company %d are emptied. Resuming production now\n" ANSI_COLOR_RESET, c->id);
+        }
     }
     return NULL;
 }
 
-void create_slots(struct zone *z)
+void create_slots(struct zone *z) // create slots  for students and take back unused slots
 {
-    printf(ANSI_COLOR_GREEN "Pharmaceutical Company %d has delivered vaccines to Vaccination zone %d, resuming vaccinations now\n" ANSI_COLOR_RESET, z->comp, z->id);
-    // printf(ANSI_COLOR_YELLOW "Vaccination Zone %d entering Vaccination Phase\n" ANSI_COLOR_RESET, z->id);
-    while (z->vrem > 0)
+    printf(ANSI_COLOR_CYAN "Pharmaceutical Company %d has delivered vaccines to Vaccination zone %d, resuming vaccinations now\n" ANSI_COLOR_RESET, z->comp, z->id);
+    while (z->vrem)
     {
-        int r = z->vrem;
-        if (r > 8)
-            r = 8;
-        int slots = 1 + rand() % r;
         pthread_mutex_lock(&z->zlock);
+        int r = z->vrem;
+        r = min(r, min(8, wstudents));
+        if (totstudents == 0)
+        {
+            pthread_mutex_unlock(&z->zlock);
+            return;
+        }
+        else if (r == 0)
+        {
+            pthread_mutex_unlock(&z->zlock);
+            continue;
+        }
+        int slots = 1 + rand() % r;
         z->srem = slots;
         z->vrem -= slots;
-        printf(ANSI_COLOR_GREEN "Vaccination Zone %d is ready to vaccinate with %d slots\n" ANSI_COLOR_RESET, z->id, z->srem);
+        sleep(1);
+        printf(ANSI_COLOR_BLUE "Vaccination Zone %d is ready to vaccinate with %d slots\n" ANSI_COLOR_RESET, z->id, z->srem);
+        pthread_mutex_unlock(&z->zlock);
         vaccinate_students(z);
     }
     printf(ANSI_COLOR_RED "Vaccination Zone %d has run out of vaccines\n" ANSI_COLOR_RESET, z->id);
 }
 
-void acquire_vaccines(struct zone *z)
+void acquire_vaccines(struct zone *z) // acquire vaccines from a company and create slots
 {
     int cnt = 0;
+    pthread_mutex_lock(&z->zlock);
     while (1)
     {
+        if (totstudents == 0)
+            break;
         cnt++;
         cnt %= cno;
         struct company *c = ca[cnt];
-        pthread_mutex_lock(&c->clock);
-        if (c->batchrem > 0)
+        int Z = pthread_mutex_trylock(&c->clock);
+        if (Z == 0)
         {
-            c->batchrem--;
-            z->comp = c->id;
-            z->vrem = c->count;
-            z->prob = c->prob;
-            printf(ANSI_COLOR_BLUE "Pharmaceutical Company %d is delivering a vaccine batch to Vaccination Zone %d which has success probability %lf\n" ANSI_COLOR_RESET, c->id, z->id, c->prob);
-            pthread_cond_signal(&c->ccond);
-            pthread_mutex_unlock(&c->clock);
-            break;
+            if (c->batchrem > 0)
+            {
+                c->batchrem--;
+                printf(ANSI_COLOR_BLUE "Pharmaceutical Company %d is delivering a vaccine batch to Vaccination Zone %d which has success probability %lf\n" ANSI_COLOR_RESET, c->id, z->id, c->prob);
+                z->comp = c->id;
+                z->vrem = c->count;
+                z->prob = c->prob;
+                sleep(1);
+                pthread_mutex_unlock(&c->clock);
+                break;
+            }
+            else
+                pthread_mutex_unlock(&c->clock);
         }
-        else
-            pthread_mutex_unlock(&c->clock);
     }
-    create_slots(z);
+    pthread_mutex_unlock(&z->zlock);
+    return create_slots(z);
 }
 
 void *zone(void *inp)
@@ -277,6 +291,11 @@ void *zone(void *inp)
     {
         printf(ANSI_COLOR_RED "Zone %d waiting for vaccine\n" ANSI_COLOR_RESET, z->id);
         acquire_vaccines(z);
+        z->comp = -1;
+        if (totstudents == 0)
+        {
+            break;
+        }
     }
     return NULL;
 }
@@ -284,13 +303,11 @@ void *zone(void *inp)
 void *student(void *inp)
 {
     struct student *s = (struct student *)inp;
-    int w = rand() % 10;
+    int w = rand() % 11;
     sleep(w);
     s->turn += 1;
     printf(ANSI_COLOR_RED "Student %d has arrived for his %d round of Vaccination\n" ANSI_COLOR_RESET, s->id, s->turn);
     wait_for_slot(s);
-    // sleep(1);
-    antibody_checkup(s);
     return NULL;
 }
 
@@ -302,27 +319,52 @@ int main()
     scanf("%d", &zno);
     printf("Enter number of students:");
     scanf("%d", &sno);
+    pthread_mutex_init(&tslock, NULL);
+    pthread_mutex_init(&wslock, NULL);
+    if (cno <= 0 || zno <= 0 || sno <= 0)
+    {
+        if (sno == 0)
+        {
+            printf(ANSI_COLOR_YELLOW "\nSIMULATION COMPLETED:)\n\n" ANSI_COLOR_RESET);
+        }
+        else
+            printf(ANSI_COLOR_RED "INVALID INPUT:(\n" ANSI_COLOR_RESET);
+        return 0;
+    }
+    pthread_mutex_lock(&tslock);
+    totstudents = sno;
+    pthread_mutex_unlock(&tslock);
     for (int i = 0; i < cno; i++)
     {
         ca[i] = (struct company *)malloc(sizeof(struct company));
+        pthread_mutex_init(&ca[i]->clock, NULL);
         ca[i]->id = i;
         ca[i]->batchrem = 0;
         ca[i]->completed = -1;
+        printf("Enter probability for company %d: ", i);
         scanf("%lf", &(ca[i]->prob));
-        printf("%lf prob\n", ca[i]->prob);
-        pthread_cond_init(&ca[i]->ccond, NULL);
+        if (ca[i]->prob > 1 || ca[i]->prob < 0)
+        {
+            printf(ANSI_COLOR_RED "INVALID PROBABILITY\n" ANSI_COLOR_RESET);
+            return 0;
+        }
+    }
+    for (int i = 0; i < cno; i++)
+    {
         pthread_create(&ca[i]->ctid, NULL, company, (void *)ca[i]);
     }
     for (int i = 0; i < zno; i++)
     {
         za[i] = (struct zone *)malloc(sizeof(struct zone));
+        pthread_mutex_init(&za[i]->zlock, NULL);
         za[i]->id = i;
-        pthread_cond_init(&za[i]->zcond, NULL);
+        za[i]->comp = -1;
         pthread_create(&za[i]->ztid, NULL, zone, (void *)za[i]);
     }
     for (int i = 0; i < sno; i++)
     {
         sa[i] = (struct student *)malloc(sizeof(struct student));
+        pthread_mutex_init(&sa[i]->slock, NULL);
         sa[i]->id = i;
         sa[i]->turn = 0;
         sa[i]->vac = 0;
@@ -332,7 +374,14 @@ int main()
     for (int i = 0; i < sno; i++)
     {
         pthread_join(sa[i]->stid, NULL);
-        // printf("Student %d left \n", sa[i]->id);
     }
-    printf(ANSI_COLOR_YELLOW "\nSIMULATION COMPLETED\n" ANSI_COLOR_RESET);
+    for (int i = 0; i < zno; i++)
+    {
+        pthread_join(za[i]->ztid, NULL);
+    }
+    for (int i = 0; i < cno; i++)
+    {
+        pthread_join(ca[i]->ctid, NULL);
+    }
+    printf(ANSI_COLOR_YELLOW "\nSIMULATION COMPLETED :)\n\n" ANSI_COLOR_RESET);
 }

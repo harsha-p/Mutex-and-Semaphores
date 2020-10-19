@@ -177,22 +177,20 @@ void runSorts(long long int n)
     int brr[n + 1], crr[n + 1];
     for (int i = 0; i < n; i++)
         brr[i] = arr[i], crr[i] = arr[i];
-    printf("arr\n");
-    for (int i = 0; i < n; i++)
-    {
-        printf("%d ", arr[i]);
-    }
+
+    // multiprocess mergesort
     printf("Running concurrent_mergesort for n = %lld\n", n);
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     long double st = ts.tv_nsec / (1e9) + ts.tv_sec;
 
-    // multiprocess mergesort
     mergeSort(arr, 0, n - 1);
+    
     for (int i = 0; i < n; i++)
     {
         printf("%d ", arr[i]);
     }
     printf("\n");
+    
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     long double en = ts.tv_nsec / (1e9) + ts.tv_sec;
     printf("time = %Lf\n", en - st);
@@ -203,42 +201,42 @@ void runSorts(long long int n)
     a.l = 0;
     a.r = n - 1;
     a.arr = brr;
-    printf("brr\n");
-    for (int i = 0; i < n; i++)
-    {
-        printf("%d ", brr[i]);
-    }
+
+    //multithreaded mergesort
     printf("Running threaded_concurrent_mergesort for n = %lld\n", n);
+    
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     st = ts.tv_nsec / (1e9) + ts.tv_sec;
-    //multithreaded mergesort
+    
     pthread_create(&tid, NULL, threaded_mergeSort, &a);
     pthread_join(tid, NULL);
+    
     for (int i = 0; i < n; i++)
     {
         printf("%d ", brr[i]);
     }
     printf("\n");
+    
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    
     en = ts.tv_nsec / (1e9) + ts.tv_sec;
     printf("time = %Lf\n", en - st);
     long double t2 = en - st;
 
-    printf("crr\n");
-    for (int i = 0; i < n; i++)
-    {
-        printf("%d ", crr[i]);
-    }
+    // normal mergesort
     printf("Running normal_mergesort for n = %lld\n", n);
+    
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     st = ts.tv_nsec / (1e9) + ts.tv_sec;
-    // normal mergesort
+    
     normal_mergeSort(crr, 0, n - 1);
+    
     for (int i = 0; i < n; i++)
     {
         printf("%d ", crr[i]);
     }
     printf("\n");
+    
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     en = ts.tv_nsec / (1e9) + ts.tv_sec;
     printf("time = %Lf\n", en - st);
